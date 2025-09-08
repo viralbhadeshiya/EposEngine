@@ -1,9 +1,9 @@
+from _typeshed import Self
 from pdf2image import convert_from_path
-from typing import NewType, Tuple
+from typing import NewType, Tuple, List
 import cv2
 import os
 import numpy as np
-from scipy import ndimage
 
 
 class EposCore:
@@ -61,13 +61,32 @@ class EposCore:
         bands.append((s, p))
         return bands
 
-    def __columns_for_band(self, yo: int, y1: int) -> List[int]:
-        band = white_mask[y0:y1, :]
-        col_frac = band.mean(Axis=0)
+    def __columns_for_band(self, yo: int, y1: int, w: int, white_mask: np.ndarray, col_white_frac_thresh: float) -> List[int]:
+        band = white_mask[yo:y1, :]
+        col_frac = band.mean(axis=0)
         v_gutter_cols = np.where(col_frac > col_white_frac_thresh)[0]
         v_bands = self.__group_contiguous(v_gutter_cols)
+        v_lines = [0]
+
+        for a, b in v_bands:
+            v_lines.append((a + b) // 2)
+        v_lines.append(w)
+        return v_lines
+
+    def __iou(self, a: Rect, b: Rect) -> float:
+        ax1, ay1, ax2, ay2 = a
+        bx1, by1, bx2, by2 = b
+        inter_x1, inter_y1 = max(ax1, bx1), max(ay1, by1)
+        inter_x2, inter_y2 = min(ax2, bx2), min(ay2, by2)
+        iw, ih = max(0, inter_x2 - inter_x1), max(0, inter_y2 - inter_y1)
+        inter = iw * ih
+        area_a = (ax2 - ax1) * (ay2 - ay1)
+        area_b = (bx2 - bx1) * (by2 - by1)
+        union = area_a + area_b - inter + 1e-6
+        return inter / union
 
     def __panel_rectangles_from_gutters(
+        self,
         gray: np.ndarray,
         white_thresh: int = 245,
         row_white_frac_thresh: float = 0.92,
@@ -96,14 +115,68 @@ class EposCore:
             h_gutter_rows = np.where(row_frac > row_white_frac_thresh)[0]
             h_bands = self.__group_contiguous(h_gutter_rows)
 
-            # Centerlines (gutters) + page borders
+            # Center lines (gutters) + page borders
             h_lines = [0]
             for a ,b in h_bands:
                 h_lines.append((a + b) // 2)
             h_lines.append(h)
 
-            reacts: List[Rect] = []
+            rects: [self.Rect] = []
 
+            # 4) Split each horizontal band by vertical gutters
+            for yi in range(len(h_lines) - 1):
+                y0, y1 = h_lines[yi], h_lines[yi + 1]
+                if y1 - y0 < min_rect_size_px:
+                    continue
+
+                v_lines = self.__columns_for_band(y0, y1, w, white_mask, col_white_frac_thresh)
+
+                for xi in range(len(v_lines) - 1):
+                    x0, x1 = v_lines[xi], v_lines[xi + 1]
+                    if y1 - y0 < min_rect_size_px:
+                        continue
+                    
+                    # Reject mostly white regions (to handle blank panel boxes)
+                    # Sometime opencv get some empty bos which are either in between panel or somewhere in picture it self
+                    region = white_mask[y0:y1, x0:x1]
+                    if region.mean() > region_mostly_white_cutoff:
+                        continue
+
+                    #Tighten a little inside to avoid gutters
+                    rects.append(
+                        (
+                            max(x0 + inset_px, 0),
+                            max(y0, inset_px, 0),
+                            max(x1 - inset_px, w),
+                            max(y1 - inset_px, h),
+                        )
+                    )
+
+            # 5) Deduplicate by IoU
+            rects_sorted = sorted(rects, key=lambda r: (r[1], r[0]))
+            filtered: List[self.Rect] = []
+            for r in rects_sorted:
+                if all(self.__iou(r, o) < 0.9 for o in filtered):
+                    filtered.append(r)
+            
+            # 6) Reading order: top -> bottom, then left -> right within rows
+            rows: List[List[self.Rect]] = []
+            row_thresh_px = int(row_grouping_fraction * h)
+            for r in filtered:
+                placed = False
+                for row in rows:
+                    if abs(row[0][1] - r[1]) < row_thresh_px:
+                        row.append(r)
+                        placed = True
+                        break
+                if not placed: # (this logic will appends all panel which don;t make sense at the end. TODO: think some logic for that)
+                    rows.append([r])
+            
+            ordered: List[self.Rect] = []
+            for row in rows:
+                ordered.extend(sorted(row, ley=lambda r: r[0]))
+
+            return ordered
         except Exception as e:
             print("Issue while extracting panel rectangles from gutters:", e)
         
@@ -120,7 +193,9 @@ class EposCore:
 
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-            rects = 
+            rects = self.__panel_rectangles_from_gutters(gray)
+
+            #TODO: write save logic
 
 
         except Exception as e:
