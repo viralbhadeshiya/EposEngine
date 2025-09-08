@@ -20,9 +20,9 @@ def natural_sort_key(s):
 
 if __name__ == "__main__":
     eposCoreObject = EposCore(input_path=comic_path, start=3, end=13, output_dir=output_path)
-    eposCoreObject.convert_pdf_to_images()
+    # eposCoreObject.convert_pdf_to_images()
     files = sorted(os.listdir(output_path), key=natural_sort_key)
     for filename in files:
-        if filename.endswith('.ppm'):
+        if filename.endswith('.jpg'):
             full_path = os.path.join(output_path, filename)
             eposCoreObject.extract_panel_from_pages(page_path=full_path, episode=1)
