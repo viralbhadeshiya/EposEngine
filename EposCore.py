@@ -2,6 +2,7 @@ from PIL import Image
 from pdf2image import convert_from_path
 from typing import NewType, Tuple, List
 import cv2
+from cv2 import dnn_superres
 import os
 import numpy as np
 
@@ -182,18 +183,27 @@ class EposCore:
         out_dir: str,
         prefix: str = "panel_",
         quality: int = 95
-    ):
+    ) -> List[str]:
         """ Crop and save each rectangles to disk; return saved file path"""
         os.makedirs(out_dir, exist_ok=True)
         pil = Image.open(image_path)
         paths = []
         for i, (x0, y0, x1, y1) in enumerate(rects, start=1):
             crop = pil.crop((x0, y0, x1, y1))
-            p = os.path.join(out_dir, f"{prefix}{self.panel_number}.jpg")
+            p = os.path.join(out_dir, f"{prefix}{self.panel_number}.png")
             self.panel_number += 1
-            crop.save(p, quality=quality)
+            crop.save(p, dpi=(300, 300))
             paths.append(p)
+        return paths
         
+    def __upscale_resolution(self, panel_paths: List[str]):
+        sr = dnn_superres.DnnSuperResImpl_create()
+        sr.readModel("EDSR_x2.pb")
+        sr.setModel("edsr", 2)
+        for panel in panel_paths:
+            upscaled = sr.upsample(panel)
+            cv2.imwrite(panel, upscaled)
+
     def extract_panel_from_pages(self, page_path: str, episode: int) -> None:
         """
             Extract panel from pages, It uses Contoure detection for auto panel detection
@@ -210,7 +220,9 @@ class EposCore:
             rects = self.__panel_rectangles_from_gutters(gray)
 
             panel_output_dir = os.path.join(self.output_dir, f"panels-{episode}")
-            self.__save_panels(page_path, rects, out_dir=panel_output_dir)
+            saved = self.__save_panels(page_path, rects, out_dir=panel_output_dir)
+
+            self.__upscale_resolution(saved)
 
         except Exception as e:
             print("Issue while extracting panel from pages:", e)
