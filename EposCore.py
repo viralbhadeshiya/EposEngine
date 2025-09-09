@@ -1,4 +1,4 @@
-from _typeshed import Self
+from PIL import Image
 from pdf2image import convert_from_path
 from typing import NewType, Tuple, List
 import cv2
@@ -22,11 +22,6 @@ class EposCore:
         self.end = end
         self.output_dir = output_dir
         self.panel_number = 0
-
-    def __sort_boxes(self, boxes: Panel_Boxes) -> Panel_Boxes:
-        row_threshold = 50  # Adjust based on comic layout
-        boxes.sort(key=lambda b: (b[1] // row_threshold, b[0]))
-        return boxes
 
     def convert_pdf_to_images(self) -> None:
         """
@@ -107,7 +102,7 @@ class EposCore:
 
             # 2) Close tiny gaps in gutters
             white_mask = cv2.morphologyEx(
-                white_mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8), interactions=1
+                white_mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8)
             )
 
             # 3) Horizontal gutters: with very high white fraction
@@ -133,7 +128,7 @@ class EposCore:
 
                 for xi in range(len(v_lines) - 1):
                     x0, x1 = v_lines[xi], v_lines[xi + 1]
-                    if y1 - y0 < min_rect_size_px:
+                    if x1 - x0 < min_rect_size_px:
                         continue
                     
                     # Reject mostly white regions (to handle blank panel boxes)
@@ -146,9 +141,9 @@ class EposCore:
                     rects.append(
                         (
                             max(x0 + inset_px, 0),
-                            max(y0, inset_px, 0),
-                            max(x1 - inset_px, w),
-                            max(y1 - inset_px, h),
+                            max(y0 + inset_px, 0),
+                            min(x1 - inset_px, w),
+                            min(y1 - inset_px, h),
                         )
                     )
 
@@ -174,11 +169,30 @@ class EposCore:
             
             ordered: List[self.Rect] = []
             for row in rows:
-                ordered.extend(sorted(row, ley=lambda r: r[0]))
+                ordered.extend(sorted(row, key=lambda r: r[0]))
 
             return ordered
         except Exception as e:
             print("Issue while extracting panel rectangles from gutters:", e)
+
+    def __save_panels(
+        self,
+        image_path: str,
+        rects: List[Rect],
+        out_dir: str,
+        prefix: str = "panel_",
+        quality: int = 95
+    ):
+        """ Crop and save each rectangles to disk; return saved file path"""
+        os.makedirs(out_dir, exist_ok=True)
+        pil = Image.open(image_path)
+        paths = []
+        for i, (x0, y0, x1, y1) in enumerate(rects, start=1):
+            crop = pil.crop((x0, y0, x1, y1))
+            p = os.path.join(out_dir, f"{prefix}{self.panel_number}.jpg")
+            self.panel_number += 1
+            crop.save(p, quality=quality)
+            paths.append(p)
         
     def extract_panel_from_pages(self, page_path: str, episode: int) -> None:
         """
@@ -195,8 +209,8 @@ class EposCore:
 
             rects = self.__panel_rectangles_from_gutters(gray)
 
-            #TODO: write save logic
-
+            panel_output_dir = os.path.join(self.output_dir, f"panels-{episode}")
+            self.__save_panels(page_path, rects, out_dir=panel_output_dir)
 
         except Exception as e:
             print("Issue while extracting panel from pages:", e)
