@@ -2,11 +2,10 @@ from PIL import Image
 from pdf2image import convert_from_path
 from typing import NewType, Tuple, List
 import cv2
-from cv2 import dnn_superres
 import os
+import torch
 import numpy as np
-
-
+from realesrgan import RealESRGANer
 class EposCore:
     Panel_Boxes = NewType('Panel_Boxes', list[tuple[int, int, int, int]])
     Rect = Tuple[int, int, int, int]
@@ -195,14 +194,34 @@ class EposCore:
             crop.save(p, dpi=(300, 300))
             paths.append(p)
         return paths
+
+    def __super_resolve(self, img: Image.Image, model, scale=4) -> Image.Image:
+        """Upscale using Real-ESRGAN"""
+        img = img.covert("RGB")
+        sr_img = model.predict(np.array(img))
+        return Image.fromarray(sr_img)
+
+    def __pad_to_4k(self, img: Image.Image, bg_color="white") -> Image.Image:
+        target_size = (3840, 2160)
+        img.thumbnail(target_size, Image.LANCZOS)
+
+        new_img = Image.new("RGB", target_size, bg_color)
+        x = (target_size[0] - img.width) // 2
+        y = (target_size[1] - img.height) // 2
+        new_img.paste(img, (x, y))
+        return new_img
         
     def __upscale_resolution(self, panel_paths: List[str]):
-        sr = dnn_superres.DnnSuperResImpl_create()
-        sr.readModel("EDSR_x2.pb")
-        sr.setModel("edsr", 2)
-        for panel in panel_paths:
-            upscaled = sr.upsample(panel)
-            cv2.imwrite(panel, upscaled)
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        model = RealESRGAN(device, scale=4)
+        model.load_weights("RealESRGAN_x4plus.pth")
+
+        for i, path in enumerate(panel_paths, 1):
+            img = Image.open(path)
+            img_sr = self.__super_resolve(img, model, scale=4)
+
+            img_4k = self.__pad_to_4k(img_sr, bg_color="white")
+            img_4k.save(path)
 
     def extract_panel_from_pages(self, page_path: str, episode: int) -> None:
         """
