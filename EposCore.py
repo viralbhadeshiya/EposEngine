@@ -219,7 +219,7 @@ class EposCore:
             img_4k = self.__pad_to_4k(sr_img)
             img_4k.save(path)
 
-    def extract_panel_from_pages(self, page_path: str, episode: int) -> None:
+    def extract_panel_from_pages(self, page_path: str, episode: int) -> str:
         """
             Extract panel from pages, It uses Contoure detection for auto panel detection
             page_path: page_path for input image
@@ -238,6 +238,7 @@ class EposCore:
             saved = self.__save_panels(page_path, rects, out_dir=panel_output_dir)
 
             self.__upscale_resolution(saved)
+            return panel_output_dir
 
         except Exception as e:
             print("Issue while extracting panel from pages:", e)
