@@ -1,9 +1,8 @@
 import json
 import os
-import pytesseract
+from paddleocr import PaddleOCR
 
-from PIL import Image
-
+ocr = PaddleOCR(lang='en')
 class EposStory:
     def __init__(self, panels_path: str, output_path: str, episode: int):
         print("Starting storyline process ...")
@@ -13,11 +12,13 @@ class EposStory:
 
     def __extract_text_from_panels(self, image_name: str):
         file_path = os.path.join(self.panels_path, image_name)
-        img = Image.open(file_path).convert("RGB")
-        config = "--psm 6"
-        text = pytesseract.image_to_string(img, config=config)
+        results = ocr.ocr(file_path)
+        lines = []
+        for line in results[0]:
+            box, (text, confidence) = line
+            if confidence > 0.6:
+                lines.append(text)
 
-        lines = [line.strip() for line in text.split("\n") if line.strip()]
         return lines
 
 
