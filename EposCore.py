@@ -193,31 +193,6 @@ class EposCore:
             paths.append(p)
         return paths
 
-    def __upscale_with_superres(self, path, model_path="EDSR_x4.pb", algo='edsr', scale=4):
-        img = cv2.imread(path)
-
-        sr = cv2.dnn_superres.DnnSuperResImpl_create()
-        sr.readModel(model_path)
-        sr.setModel("edsr", 4)
-
-        result = sr.upsample(img)
-        return Image.fromarray(cv2.cvtColor(result, cv2.COLOR_BGR2RGB))
-
-    def __pad_to_4k(self, pil_image, bg_color="white"):
-        target_size = (3840, 2160)
-        pil_image.thumbnail(target_size, Image.LANCZOS)
-
-        canvas = Image.new("RGB", target_size, bg_color)
-        x = (target_size[0] - pil_image.width) // 2
-        y = (target_size[1] - pil_image.height) // 2
-        canvas.paste(pil_image, (x, y))
-        return canvas
-
-    def __upscale_resolution(self, panel_paths: List[str]):
-        for i, path in enumerate(panel_paths, 1):
-            sr_img = self.__upscale_with_superres(path, model_path="EDSR_x4.pb", algo="edst", scale=4)
-            img_4k = self.__pad_to_4k(sr_img)
-            img_4k.save(path)
 
     def extract_panel_from_pages(self, page_path: str, episode: int) -> str:
         """
@@ -237,7 +212,6 @@ class EposCore:
             panel_output_dir = os.path.join(self.output_dir, f"panels-{episode}")
             saved = self.__save_panels(page_path, rects, out_dir=panel_output_dir)
 
-            self.__upscale_resolution(saved)
             return panel_output_dir
 
         except Exception as e:

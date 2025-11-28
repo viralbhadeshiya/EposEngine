@@ -23,7 +23,7 @@ if __name__ == "__main__":
     # Extract pages and panels from normal comic book pdf
     episode = 1
     # eposCoreObject = EposCore(input_path=comic_path, start=3, end=13, output_dir=output_path)
-    # eposCoreObject.convert_pdf_to_images()
+    # # eposCoreObject.convert_pdf_to_images()
     # files = sorted(os.listdir(output_path), key=natural_sort_key)
     # for filename in files:
     #     if filename.endswith('.jpg'):
